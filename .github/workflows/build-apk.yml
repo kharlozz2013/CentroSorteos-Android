@@ -1,4 +1,4 @@
-name: Build Centro Sorteos Admin v4
+name: Build Centro Sorteos Admin Mobile v5
 on:
   push:
     branches: [ main ]
@@ -84,6 +84,16 @@ jobs:
               assert r.geturl().endswith('/admin'), r.geturl()
           print('ANDROID_DYNAMIC_LOCAL_SERVER_OK', url)
           PY
+      - name: Validar interfaz Admin móvil
+        shell: bash
+        run: |
+          grep -q "admin-mobile-bottom-nav" project/app/src/main/python/serverapp/templates/admin.html
+          grep -q "adminMobileMoreSheet" project/app/src/main/python/serverapp/templates/admin.html
+          grep -q "ADMIN MÓVIL · v5" project/app/src/main/python/serverapp/assets/css/styles.css
+          grep -q "adminMobileMoreButton" project/app/src/main/python/serverapp/assets/js/admin-shell.js
+          grep -q 'versionCode = 5' project/app/build.gradle.kts
+          node --check project/app/src/main/python/serverapp/assets/js/admin-shell.js
+          node --check project/app/src/main/python/serverapp/assets/js/app.js
       - name: Preparar Android SDK 36
         shell: bash
         run: |
@@ -105,6 +115,6 @@ jobs:
           ls -lh project/app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: CentroSorteos-Admin-v4-apk
+          name: CentroSorteos-Admin-Mobile-v5-apk
           path: project/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
