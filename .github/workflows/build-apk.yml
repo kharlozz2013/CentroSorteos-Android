@@ -1,4 +1,4 @@
-name: Build Centro Sorteos VPS 8089
+name: Build Centro Sorteos TEST Update
 on:
   push:
     branches: [ main ]
@@ -14,12 +14,18 @@ jobs:
           - target: user
             payload_ref: 5d68d1a4a18e4c37fdb80cd784081e650bcda109
             manifest_file: user.json
+            version_code: 3
+            version_name: 1.1.1-test
           - target: admin
             payload_ref: 261d6ecfafe705ea519d7aa9a2ab043e8771bb79
             manifest_file: admin.json
+            version_code: 7
+            version_name: 1.2.1-test
+
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,17 +48,26 @@ jobs:
           mkdir -p project
           tar -xJf /tmp/project.tar.xz -C project
 
-      - name: Apuntar actualizador al VPS
+      - name: Aplicar version TEST y VPS 8089
         shell: bash
         run: |
           JAVA_FILE="$(find project/app/src/main/java -name MainActivity.java -print -quit)"
+          GRADLE_FILE="project/app/build.gradle.kts"
           test -n "$JAVA_FILE"
+          test -f "$GRADLE_FILE"
+
           sed -i 's#https://www\.viralenunclick\.com/sorteos-updates/#http://76.13.126.244:8089/#g' "$JAVA_FILE"
           sed -i 's#startsWith("https://")#startsWith("http://76.13.126.244:8089/")#g' "$JAVA_FILE"
 
+          sed -Ei 's/versionCode = [0-9]+/versionCode = ${{ matrix.version_code }}/' "$GRADLE_FILE"
+          sed -Ei 's/versionName = "[^"]+"/versionName = "${{ matrix.version_name }}"/' "$GRADLE_FILE"
+
           grep -F 'http://76.13.126.244:8089/${{ matrix.manifest_file }}' "$JAVA_FILE"
           grep -F 'startsWith("http://76.13.126.244:8089/")' "$JAVA_FILE"
+          grep -F 'versionCode = ${{ matrix.version_code }}' "$GRADLE_FILE"
+          grep -F 'versionName = "${{ matrix.version_name }}"' "$GRADLE_FILE"
           grep -F 'android:usesCleartextTraffic="true"' project/app/src/main/AndroidManifest.xml
+
           if grep -R "viralenunclick.com/sorteos-updates" project/app/src/main; then
             echo "ERROR: quedó una referencia al dominio anterior"
             exit 1
@@ -66,7 +81,7 @@ jobs:
           python3.13 - <<'PY'
           import tempfile, urllib.request
           from serverapp.mobile_server import start_server
-          url = start_server(tempfile.mkdtemp(prefix='centro-sorteos-vps8089-'))
+          url = start_server(tempfile.mkdtemp(prefix='centro-sorteos-test-update-'))
           assert isinstance(url, str) and url.startswith('http://127.0.0.1:'), url
           with urllib.request.urlopen(url, timeout=5) as r:
               body = r.read()
@@ -99,10 +114,12 @@ jobs:
           cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" release-bundle/zipalign
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" release-bundle/apksigner.jar
           chmod +x release-bundle/zipalign
+          printf '%s\n' "${{ matrix.version_code }}" > release-bundle/version_code.txt
+          printf '%s\n' "${{ matrix.version_name }}" > release-bundle/version_name.txt
           sha256sum release-bundle/app-release-unsigned.apk > release-bundle/unsigned.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: centro-sorteos-${{ matrix.target }}-vps8089-unsigned
+          name: centro-sorteos-${{ matrix.target }}-test-update
           path: release-bundle/
           if-no-files-found: error
