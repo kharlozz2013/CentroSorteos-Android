@@ -6,6 +6,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -15,21 +18,29 @@ jobs:
       - name: Reconstruir proyecto
         shell: bash
         run: |
+          test -f CentroSorteos_Android_payload.txt
           base64 -d CentroSorteos_Android_payload.txt > /tmp/project.tar.xz
           mkdir -p project
           tar -xJf /tmp/project.tar.xz -C project --strip-components=1
-      - uses: android-actions/setup-android@v3
-      - name: Instalar Android 36
+      - name: Preparar Android SDK 36
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
       - name: Compilar APK Debug
         working-directory: project
         run: gradle :app:assembleDebug --stacktrace
+      - name: Verificar APK
+        shell: bash
+        run: |
+          test -s project/app/build/outputs/apk/debug/app-debug.apk
+          sha256sum project/app/build/outputs/apk/debug/app-debug.apk
+          ls -lh project/app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
         with:
           name: CentroSorteos-debug-apk
