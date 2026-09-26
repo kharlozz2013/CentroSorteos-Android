@@ -55,6 +55,20 @@ jobs:
           assert r.status_code == 200, ('GET /admin', r.status_code, r.data[:500])
           print('ADMIN_SMOKE_TEST_OK')
           PY
+      - name: Probar arranque local Android-Python
+        working-directory: project/app/src/main/python
+        shell: bash
+        run: |
+          python3.13 - <<'PY'
+          import tempfile, urllib.request
+          from serverapp.mobile_server import start_server
+          assert start_server(tempfile.mkdtemp(prefix='centro-admin-')) is True
+          with urllib.request.urlopen('http://127.0.0.1:8765/admin/login', timeout=5) as r:
+              body = r.read()
+              assert r.status == 200
+              assert b'csrf_token' in body
+          print('ANDROID_LOCAL_SERVER_OK')
+          PY
       - name: Preparar Android SDK 36
         shell: bash
         run: |
