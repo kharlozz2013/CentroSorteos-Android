@@ -29,6 +29,32 @@ jobs:
           base64 -d CentroSorteos_Android_payload.txt > /tmp/project.tar.xz
           mkdir -p project
           tar -xJf /tmp/project.tar.xz -C project --strip-components=1
+      - name: Probar servidor Admin
+        working-directory: project/app/src/main/python
+        shell: bash
+        run: |
+          python3.13 -m pip install --quiet "Flask>=3.0,<4" "Werkzeug>=3.0,<4"
+          export SORTEOS_DB="$RUNNER_TEMP/admin-smoke/sorteos.db"
+          export SECRET_KEY="ci-admin-smoke-secret"
+          python3.13 - <<'PY'
+          import re
+          from serverapp.app import app, init_db
+          init_db()
+          c = app.test_client()
+          r = c.get('/admin/login')
+          assert r.status_code == 200, ('GET /admin/login', r.status_code, r.data[:500])
+          m = re.search(rb'name="csrf_token" value="([^"]+)"', r.data)
+          assert m, 'No se encontró CSRF en login'
+          r = c.post('/admin/login', data={
+              'csrf_token': m.group(1).decode(),
+              'username': 'admin',
+              'password': 'Admin123!'
+          }, follow_redirects=False)
+          assert r.status_code in (301, 302, 303), ('POST /admin/login', r.status_code, r.data[:500])
+          r = c.get('/admin')
+          assert r.status_code == 200, ('GET /admin', r.status_code, r.data[:500])
+          print('ADMIN_SMOKE_TEST_OK')
+          PY
       - name: Preparar Android SDK 36
         shell: bash
         run: |
