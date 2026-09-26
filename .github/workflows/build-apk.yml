@@ -1,4 +1,4 @@
-name: Compilar APK CentroSorteos
+name: Build Centro Sorteos APK
 on:
   push:
     branches: [ main ]
@@ -12,25 +12,26 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
+      - name: Reconstruir proyecto
+        shell: bash
+        run: |
+          base64 -d CentroSorteos_Android_payload.txt > /tmp/project.tar.xz
+          mkdir -p project
+          tar -xJf /tmp/project.tar.xz -C project --strip-components=1
       - uses: android-actions/setup-android@v3
-      - run: yes | sdkmanager --licenses >/dev/null || true
-      - run: sdkmanager "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - name: Instalar Android 36
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;35.0.0" "platform-tools"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Preparar proyecto
-        run: |
-          test -f CentroSorteos_Android_Proyecto.zip
-          rm -rf build-src
-          mkdir build-src
-          unzip -q CentroSorteos_Android_Proyecto.zip -d build-src
       - name: Compilar APK Debug
-        working-directory: build-src/CentroSorteos_Android
+        working-directory: project
         run: gradle :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
         with:
           name: CentroSorteos-debug-apk
-          path: build-src/CentroSorteos_Android/app/build/outputs/apk/debug/app-debug.apk
+          path: project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
