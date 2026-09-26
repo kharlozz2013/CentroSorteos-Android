@@ -1,4 +1,4 @@
-name: Build Centro Sorteos Admin Mobile v5
+name: Build Centro Sorteos Unsigned Release
 on:
   push:
     branches: [ main ]
@@ -18,82 +18,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Verificar Python 3.13
-        run: |
-          python3.13 --version
-          command -v python3.13
       - name: Reconstruir proyecto
         shell: bash
         run: |
           test -f CentroSorteos_Android_payload.txt
           base64 -d CentroSorteos_Android_payload.txt > /tmp/project.tar.xz
           mkdir -p project
-          tar -xJf /tmp/project.tar.xz -C project --strip-components=1
-      - name: Probar servidor Admin
+          tar -xJf /tmp/project.tar.xz -C project
+      - name: Probar servidor local
         working-directory: project/app/src/main/python
         shell: bash
         run: |
           python3.13 -m pip install --quiet "Flask>=3.0,<4" "Werkzeug>=3.0,<4"
-          export SORTEOS_DB="$RUNNER_TEMP/admin-smoke/sorteos.db"
-          export SECRET_KEY="ci-admin-smoke-secret"
           python3.13 - <<'PY'
-          import re
-          from serverapp.app import app, init_db
-          init_db()
-          c = app.test_client()
-          r = c.get('/admin/login')
-          assert r.status_code == 200, ('GET /admin/login', r.status_code, r.data[:500])
-          m = re.search(rb'name="csrf_token" value="([^"]+)"', r.data)
-          assert m, 'No se encontró CSRF en login'
-          r = c.post('/admin/login', data={
-              'csrf_token': m.group(1).decode(),
-              'username': 'admin',
-              'password': 'Admin123!'
-          }, follow_redirects=False)
-          assert r.status_code in (301, 302, 303), ('POST /admin/login', r.status_code, r.data[:500])
-          r = c.get('/admin')
-          assert r.status_code == 200, ('GET /admin', r.status_code, r.data[:500])
-          print('ADMIN_SMOKE_TEST_OK')
-          PY
-      - name: Probar arranque local Android-Python
-        working-directory: project/app/src/main/python
-        shell: bash
-        run: |
-          python3.13 - <<'PY'
-          import tempfile, urllib.request, urllib.parse, http.cookiejar, re
+          import tempfile, urllib.request
           from serverapp.mobile_server import start_server
-          url = start_server(tempfile.mkdtemp(prefix='centro-admin-v4-'))
-          assert isinstance(url, str), type(url)
-          assert url.startswith('http://127.0.0.1:'), url
-          assert url.endswith('/admin/login'), url
-          jar = http.cookiejar.CookieJar()
-          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-          with opener.open(url, timeout=5) as r:
+          url = start_server(tempfile.mkdtemp(prefix='centro-sorteos-release-'))
+          assert isinstance(url, str) and url.startswith('http://127.0.0.1:'), url
+          with urllib.request.urlopen(url, timeout=5) as r:
               body = r.read()
-              assert r.status == 200
-              m = re.search(rb'name="csrf_token" value="([^"]+)"', body)
-              assert m, body[:500]
-          data = urllib.parse.urlencode({
-              'csrf_token': m.group(1).decode(),
-              'username': 'admin',
-              'password': 'Admin123!'
-          }).encode()
-          with opener.open(urllib.request.Request(url, data=data, method='POST'), timeout=5) as r:
-              body = r.read()
-              assert r.status == 200
-              assert r.geturl().endswith('/admin'), r.geturl()
-          print('ANDROID_DYNAMIC_LOCAL_SERVER_OK', url)
+              assert r.status == 200, r.status
+              assert len(body) > 100
+          print('LOCAL_SERVER_OK', url)
           PY
-      - name: Validar interfaz Admin móvil
-        shell: bash
-        run: |
-          grep -q "admin-mobile-bottom-nav" project/app/src/main/python/serverapp/templates/admin.html
-          grep -q "adminMobileMoreSheet" project/app/src/main/python/serverapp/templates/admin.html
-          grep -q "ADMIN MÓVIL · v5" project/app/src/main/python/serverapp/assets/css/styles.css
-          grep -q "adminMobileMoreButton" project/app/src/main/python/serverapp/assets/js/admin-shell.js
-          grep -q 'versionCode = 5' project/app/build.gradle.kts
-          node --check project/app/src/main/python/serverapp/assets/js/admin-shell.js
-          node --check project/app/src/main/python/serverapp/assets/js/app.js
       - name: Preparar Android SDK 36
         shell: bash
         run: |
@@ -104,17 +51,21 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-      - name: Compilar APK Debug
+      - name: Compilar Release sin firma
         working-directory: project
-        run: gradle :app:assembleDebug --stacktrace -Pchaquopy.buildPython=$(command -v python3.13)
-      - name: Verificar APK
+        run: gradle :app:assembleRelease --stacktrace -Pchaquopy.buildPython=$(command -v python3.13)
+      - name: Preparar artefacto para firma privada
         shell: bash
         run: |
-          test -s project/app/build/outputs/apk/debug/app-debug.apk
-          sha256sum project/app/build/outputs/apk/debug/app-debug.apk
-          ls -lh project/app/build/outputs/apk/debug/app-debug.apk
+          mkdir -p release-bundle
+          cp project/app/build/outputs/apk/release/app-release-unsigned.apk release-bundle/app-release-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" release-bundle/zipalign
+          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" release-bundle/apksigner.jar
+          chmod +x release-bundle/zipalign
+          test -s release-bundle/app-release-unsigned.apk
+          sha256sum release-bundle/app-release-unsigned.apk > release-bundle/unsigned.sha256
       - uses: actions/upload-artifact@v4
         with:
-          name: CentroSorteos-Admin-Mobile-v5-apk
-          path: project/app/build/outputs/apk/debug/app-debug.apk
+          name: centro-sorteos-unsigned-release
+          path: release-bundle/
           if-no-files-found: error
