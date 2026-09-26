@@ -1,0 +1,36 @@
+name: Compilar APK CentroSorteos
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: android-actions/setup-android@v3
+      - run: yes | sdkmanager --licenses >/dev/null || true
+      - run: sdkmanager "platforms;android-36" "build-tools;35.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+      - name: Preparar proyecto
+        run: |
+          test -f CentroSorteos_Android_Proyecto.zip
+          rm -rf build-src
+          mkdir build-src
+          unzip -q CentroSorteos_Android_Proyecto.zip -d build-src
+      - name: Compilar APK Debug
+        working-directory: build-src/CentroSorteos_Android
+        run: gradle :app:assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CentroSorteos-debug-apk
+          path: build-src/CentroSorteos_Android/app/build/outputs/apk/debug/app-debug.apk
