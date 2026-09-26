@@ -15,6 +15,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verificar Python 3.13
+        run: |
+          python3.13 --version
+          command -v python3.13
       - name: Reconstruir proyecto
         shell: bash
         run: |
@@ -34,7 +41,7 @@ jobs:
           gradle-version: '8.13'
       - name: Compilar APK Debug
         working-directory: project
-        run: gradle :app:assembleDebug --stacktrace
+        run: gradle :app:assembleDebug --stacktrace -Pchaquopy.buildPython=$(command -v python3.13)
       - name: Verificar APK
         shell: bash
         run: |
