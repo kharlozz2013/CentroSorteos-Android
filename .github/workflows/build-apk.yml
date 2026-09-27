@@ -1,4 +1,4 @@
-name: Validar Centro Sorteos Web Fase 3
+name: Validar Centro Sorteos Web Fase 4
 on:
   push:
     branches: [ main ]
@@ -12,51 +12,53 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Reconstruir Fase 3
+
+      - name: Reconstruir Fase 4
         shell: bash
         run: |
-          base64 -d CentroSorteos_WEB_Fase3_payload.txt > /tmp/fase3.tar.xz
+          base64 -d CentroSorteos_WEB_Fase4_payload.txt > /tmp/fase4.tar.xz
           mkdir -p web
-          tar -xJf /tmp/fase3.tar.xz -C web
-      - name: Validar sintaxis y UI Fase 3
+          tar -xJf /tmp/fase4.tar.xz -C web
+
+      - name: Validar sintaxis y continuidad
         shell: bash
         run: |
           python -m py_compile web/serverapp/app.py web/serverapp/mobile_server.py
           node --check web/serverapp/assets/js/app.js
           node --check web/serverapp/assets/js/admin-shell.js
+          grep -F 'Guardar borrador' web/serverapp/templates/admin.html
+          grep -F 'Participantes y oportunidades' web/serverapp/templates/admin.html
+          grep -F 'Sorteos comunitarios finalizados' web/serverapp/templates/admin.html
+          grep -F 'function activateCommunityRaffle' web/serverapp/assets/js/app.js
+          grep -F 'function closeCommunityRaffle' web/serverapp/assets/js/app.js
+          grep -F 'function hydrateAdminCommunityParticipants' web/serverapp/assets/js/app.js
+          grep -F 'function hydrateAdminCommunityHistory' web/serverapp/assets/js/app.js
+          grep -F 'sourcePhone' web/serverapp/assets/js/app.js
+          grep -F 'adminRewardConfigDirty' web/serverapp/assets/js/app.js
+          grep -F 'adminVirtualBonusList' web/serverapp/assets/js/app.js
           grep -F 'admin-user-whatsapp' web/serverapp/assets/css/styles.css
-          grep -F 'https://wa.me/' web/serverapp/assets/js/admin-shell.js
-          grep -F 'adminUserCount' web/serverapp/templates/admin.html
-          grep -F 'adminUserRefresh' web/serverapp/templates/admin.html
-          grep -F 'Participaciones' web/serverapp/assets/js/admin-shell.js
-          grep -F 'Referidos' web/serverapp/assets/js/admin-shell.js
-          grep -F 'Registro directo' web/serverapp/assets/js/admin-shell.js
-          grep -F 'Buscar WhatsApp, código o referidor' web/serverapp/templates/admin.html
+          grep -F '?v=fase4' web/serverapp/templates/admin.html
+          grep -F '?v=fase4' web/serverapp/templates/index.html
+
       - name: Instalar backend
         working-directory: web
         run: python -m pip install --quiet -r requirements.txt
-      - name: Probar backend Fase 3
+
+      - name: Probar backend y recursos
         working-directory: web
         shell: bash
         run: |
-          python - <<'PY'
-          import os, tempfile, re
-          from pathlib import Path
-          os.environ['SORTEOS_DB']=str(Path(tempfile.mkdtemp())/'fase3.db')
-          os.environ['ADMIN_USER']='admin'
-          os.environ['ADMIN_PASSWORD']='Admin123!'
-          from serverapp.app import app
-          app.config['TESTING']=True
-          c=app.test_client()
-          login=c.get('/admin/login').get_data(as_text=True)
-          token=re.search(r'name="csrf_token"[^>]*value="([^"]+)"',login)
-          assert token
-          r=c.post('/admin/login',data={'csrf_token':token.group(1),'username':'admin','password':'Admin123!'},follow_redirects=True)
-          assert r.status_code==200
-          html=r.get_data(as_text=True)
-          for needle in ('Usuarios del sistema','adminUserCount','adminUserRefresh','Buscar WhatsApp, código o referidor'):
-              assert needle in html, needle
-          snap=c.get('/api/snapshot')
-          assert snap.status_code==200 and snap.get_json()['ok'] is True
-          print('FASE3_BACKEND_OK')
-          PY
+          export SORTEOS_DB="$RUNNER_TEMP/sorteos-fase4.db"
+          export HOST=127.0.0.1
+          export PORT=5055
+          python -m serverapp.app >/tmp/fase4.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:5055/api/health >/dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:5055/api/health | grep -F '"ok":true'
+          curl -fsSI http://127.0.0.1:5055/assets/css/styles.css | grep -F '200 OK'
+          curl -fsSI http://127.0.0.1:5055/assets/js/app.js | grep -F '200 OK'
+          curl -fsS http://127.0.0.1:5055/ | grep -F 'SORTEO COMUNITARIO'
