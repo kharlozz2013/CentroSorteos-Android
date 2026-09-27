@@ -29,7 +29,7 @@ jobs:
           grep -F 'Configuración de recompensas guardada en el servidor' web/serverapp/assets/js/app.js
           grep -F 'Tienes cambios sin guardar' web/serverapp/assets/js/app.js
           grep -F 'Solo comprobantes enviados después de activar el reto' web/serverapp/assets/js/app.js
-          grep -F 'cada sorteo distinto cuenta una sola vez' web/serverapp/templates/index.html
+          grep -F 'cada Sorteo Principal o Comunitario distinto' web/serverapp/templates/index.html
       - name: Instalar backend
         working-directory: web
         run: python -m pip install --quiet -r requirements.txt
