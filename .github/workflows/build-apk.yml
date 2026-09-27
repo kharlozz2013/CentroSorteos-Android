@@ -1,165 +1,75 @@
-name: Build Centro Sorteos Modificaciones
+name: Validar Centro Sorteos Web Fase 1
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  web-smoke:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Reconstruir web de prueba
+      - name: Reconstruir Fase 1
         shell: bash
         run: |
-          base64 -d CentroSorteos_Web_Modificaciones_payload.txt > /tmp/web.tar.xz
+          base64 -d CentroSorteos_WEB_Fase1_payload.txt > /tmp/fase1.tar.xz
           mkdir -p web
-          tar -xJf /tmp/web.tar.xz -C web
-      - name: Validar sintaxis
+          tar -xJf /tmp/fase1.tar.xz -C web
+      - name: Validar sintaxis y reglas Fase 1
         shell: bash
         run: |
-          python -m py_compile web/serverapp/app.py web/wsgi.py
+          python -m py_compile web/serverapp/app.py web/serverapp/mobile_server.py
           node --check web/serverapp/assets/js/app.js
-          grep -F 'Sin reserva de número' web/serverapp/templates/admin.html
-          grep -F 'withdrawPaymentMethod' web/serverapp/templates/index.html
-          ! grep -F 'Fase 12 · Estadísticas conectadas' web/serverapp/templates/index.html
-      - name: Probar backend web
-        shell: bash
+          grep -F 'adminRewardConfigDirty' web/serverapp/assets/js/app.js
+          grep -F 'recordRewardRaffleParticipation' web/serverapp/assets/js/app.js
+          grep -F 'trackingVersion:2' web/serverapp/assets/js/app.js
+          grep -F 'Configuración de recompensas guardada en el servidor' web/serverapp/assets/js/app.js
+          grep -F 'Tienes cambios sin guardar' web/serverapp/assets/js/app.js
+          grep -F 'Solo comprobantes enviados después de activar el reto' web/serverapp/assets/js/app.js
+          grep -F 'cada sorteo distinto cuenta una sola vez' web/serverapp/templates/index.html
+      - name: Instalar backend
         working-directory: web
-        run: |
-          python -m pip install --quiet -r requirements.txt
-          export SORTEOS_DB="$RUNNER_TEMP/sorteos-test.db"
-          export HOST=127.0.0.1
-          export PORT=5055
-          export ADMIN_USER=admin
-          export ADMIN_PASSWORD='Admin123!'
-          python -m serverapp.app > /tmp/centro-web.log 2>&1 &
-          PID=$!
-          trap 'kill $PID || true' EXIT
-          for i in {1..40}; do
-            if curl -fsS http://127.0.0.1:5055/api/health >/dev/null; then break; fi
-            sleep 0.5
-          done
-          curl -fsS http://127.0.0.1:5055/api/health | grep -F '"ok":true'
-          curl -fsSI http://127.0.0.1:5055/assets/css/styles.css | grep -F '200 OK'
-          curl -fsSI http://127.0.0.1:5055/assets/js/app.js | grep -F '200 OK'
-          curl -fsS http://127.0.0.1:5055/ | grep -F 'Método de pago'
-          curl -fsS http://127.0.0.1:5055/admin/login | grep -F 'Acceso administrador'
-
-  build:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: user
-            payload_ref: 060adbe499744501aa10625083bb9a1bf554198a
-            package_dir: com/centrosorteos/app
-            version_code: 6
-            version_name: 1.3.0
-            app_url: http://76.13.126.244:8090/
-            manifest_file: user.json
-          - target: admin
-            payload_ref: 261d6ecfafe705ea519d7aa9a2ab043e8771bb79
-            package_dir: com/centrosorteos/admin
-            version_code: 9
-            version_name: 1.4.0
-            app_url: http://76.13.126.244:8090/admin/login
-            manifest_file: admin.json
-
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - name: Reconstruir proyecto ${{ matrix.target }}
+        run: python -m pip install --quiet -r requirements.txt
+      - name: Probar persistencia de recompensas
+        working-directory: web
         shell: bash
         run: |
-          git show "${{ matrix.payload_ref }}:CentroSorteos_Android_payload.txt" > /tmp/payload.txt
-          base64 -d /tmp/payload.txt > /tmp/project.tar.xz
-          mkdir -p project
-          tar -xJf /tmp/project.tar.xz -C project
-      - name: Configurar cliente central y versión
-        shell: bash
-        env:
-          APP_URL: ${{ matrix.app_url }}
-          MANIFEST_FILE: ${{ matrix.manifest_file }}
-          VERSION_CODE: ${{ matrix.version_code }}
-          VERSION_NAME: ${{ matrix.version_name }}
-          PACKAGE_DIR: ${{ matrix.package_dir }}
-        run: |
-          python3.13 - <<'PY'
-          import os, re
+          python - <<'PY'
+          import os, tempfile, re
           from pathlib import Path
-          java = Path("project/app/src/main/java") / os.environ["PACKAGE_DIR"] / "MainActivity.java"
-          gradle = Path("project/app/build.gradle.kts")
-          s = java.read_text(encoding="utf-8")
-          s = s.replace("https://www.viralenunclick.com/sorteos-updates/", "http://76.13.126.244:8089/")
-          s = s.replace('startsWith("https://")', 'startsWith("http://76.13.126.244:8089/")')
-          app_url = os.environ["APP_URL"]
-          replacement = '''    private void startPythonServer() {
-              if (appStarted) return;
-              appStarted = true;
-              progress.setVisibility(View.VISIBLE);
-              webView.loadUrl("__APP_URL__");
-          }
+          os.environ['SORTEOS_DB']=str(Path(tempfile.mkdtemp())/'phase1.db')
+          os.environ['ADMIN_USER']='admin'
+          os.environ['ADMIN_PASSWORD']='Admin123!'
+          from serverapp.app import app
+          app.config['TESTING']=True
+          client=app.test_client()
 
-          private void showStartupError'''.replace("__APP_URL__", app_url)
-          s, n = re.subn(
-              r'    private void startPythonServer\(\) \{.*?\n    \}\n\n    private void showStartupError',
-              replacement, s, count=1, flags=re.S,
-          )
-          if n != 1:
-              raise SystemExit("No se pudo reemplazar startPythonServer")
-          java.write_text(s, encoding="utf-8")
-          g = gradle.read_text(encoding="utf-8")
-          g = re.sub(r'versionCode = \d+', f'versionCode = {os.environ["VERSION_CODE"]}', g)
-          g = re.sub(r'versionName = "[^"]+"', f'versionName = "{os.environ["VERSION_NAME"]}"', g)
-          gradle.write_text(g, encoding="utf-8")
+          blocked=client.put('/api/store/sorteos_demo_reward_config_v1',json={'value':[]})
+          assert blocked.status_code==403
+
+          login=client.get('/admin/login').get_data(as_text=True)
+          token=re.search(r'name="csrf_token"[^>]*value="([^"]+)"',login)
+          assert token
+          response=client.post('/admin/login',data={'csrf_token':token.group(1),'username':'admin','password':'Admin123!'})
+          assert response.status_code in (302,303)
+
+          config=[
+            {'id':'RW-167','amount':2.00,'views':500,'raffles':3,'referrals':2,'enabled':True},
+            {'id':'RW-080','amount':0.80,'views':1500,'raffles':5,'referrals':3,'enabled':True},
+            {'id':'RW-055','amount':0.55,'views':900,'raffles':3,'referrals':2,'enabled':True},
+            {'id':'RW-020','amount':0.20,'views':300,'raffles':1,'referrals':1,'enabled':True},
+          ]
+          saved=client.put('/api/store/sorteos_demo_reward_config_v1',json={'value':config})
+          assert saved.status_code==200, saved.get_data(as_text=True)
+          reread=client.get('/api/store/sorteos_demo_reward_config_v1').get_json()['value']
+          assert reread[0]['amount']==2.0
+          assert reread[0]['views']==500
+          assert reread[0]['raffles']==3
+          assert reread[0]['referrals']==2
+          snap=client.get('/api/snapshot').get_json()
+          assert snap['store']['sorteos_demo_reward_config_v1'][0]['views']==500
+          print('PHASE1_REWARD_PERSISTENCE_OK')
           PY
-          JAVA_FILE="project/app/src/main/java/${{ matrix.package_dir }}/MainActivity.java"
-          grep -F 'http://76.13.126.244:8089/${{ matrix.manifest_file }}' "$JAVA_FILE"
-          grep -F 'webView.loadUrl("${{ matrix.app_url }}")' "$JAVA_FILE"
-          grep -F 'versionCode = ${{ matrix.version_code }}' project/app/build.gradle.kts
-          grep -F 'versionName = "${{ matrix.version_name }}"' project/app/build.gradle.kts
-          grep -F 'android:usesCleartextTraffic="true"' project/app/src/main/AndroidManifest.xml
-      - name: Preparar Android SDK 36
-        shell: bash
-        run: |
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.13'
-      - name: Compilar Release sin firma
-        working-directory: project
-        run: gradle :app:assembleRelease --stacktrace -Pchaquopy.buildPython=$(command -v python3.13)
-      - name: Preparar artefacto
-        shell: bash
-        run: |
-          mkdir -p release-bundle
-          cp project/app/build/outputs/apk/release/app-release-unsigned.apk release-bundle/app-release-unsigned.apk
-          cp "$ANDROID_HOME/build-tools/35.0.0/zipalign" release-bundle/zipalign
-          cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" release-bundle/apksigner.jar
-          chmod +x release-bundle/zipalign
-          sha256sum release-bundle/app-release-unsigned.apk > release-bundle/unsigned.sha256
-      - uses: actions/upload-artifact@v4
-        with:
-          name: centro-sorteos-${{ matrix.target }}-modificaciones-unsigned
-          path: release-bundle/
-          if-no-files-found: error
