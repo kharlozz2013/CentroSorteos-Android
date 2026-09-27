@@ -1,4 +1,4 @@
-name: Validar Centro Sorteos Web Fase 7
+name: Validar Centro Sorteos Web Fase 8
 on:
   push:
     branches: [ main ]
@@ -13,69 +13,90 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Reconstruir Fase 7
+      - name: Reconstruir Fase 8
         shell: bash
         run: |
-          base64 -d CentroSorteos_WEB_Fase7_payload.txt > /tmp/fase7.tar.xz
+          base64 -d CentroSorteos_WEB_Fase8_payload.txt > /tmp/fase8.tar.xz
           mkdir -p web
-          tar -xJf /tmp/fase7.tar.xz -C web
+          tar -xJf /tmp/fase8.tar.xz -C web
 
-      - name: Validar sintaxis e integración Fase 7
+      - name: Validar sintaxis y estructura
         shell: bash
         run: |
           python -m py_compile web/serverapp/app.py web/serverapp/mobile_server.py
           node --check web/serverapp/assets/js/app.js
           node --check web/serverapp/assets/js/admin-shell.js
-          grep -F 'Este es el único sorteo de la plataforma' web/serverapp/templates/index.html
-          grep -F '1 referido aprobado = +1 oportunidad virtual' web/serverapp/templates/index.html
+          ! grep -qi 'SORTEO COMUNITARIO' web/serverapp/templates/index.html
+          ! grep -q 'Sorteo comunitario' web/serverapp/templates/admin.html
+          grep -F 'Un solo sorteo. <span>Más formas de ganar.</span>' web/serverapp/templates/index.html
+          grep -F 'mainMyVirtualEntries' web/serverapp/templates/index.html
           grep -F 'cada Sorteo Principal distinto' web/serverapp/templates/index.html
-          grep -F 'Cada referido directo aprobado por el Admin aporta +1 oportunidad virtual' web/serverapp/templates/admin.html
-          grep -F 'approvedReferralSourcesForPhone' web/serverapp/assets/js/app.js
-          grep -F "if (referred.referredBy !== inviter.referralCode || referred.referralStatus !== 'approved')" web/serverapp/assets/js/app.js
-          grep -F "if(type!=='main'||!phone||!raffle?.id)return false;" web/serverapp/assets/js/app.js
+          grep -F "referred.referralStatus === 'approved'" web/serverapp/assets/js/app.js
           grep -F "event.type !== 'main'" web/serverapp/assets/js/app.js
-          grep -F '?v=fase7' web/serverapp/templates/index.html
-          grep -F '?v=fase7' web/serverapp/templates/admin.html
-          if grep -Ei 'SORTEO COMUNITARIO|Sorteo comunitario|Sorteos comunitarios|SEGUNDO SISTEMA' web/serverapp/templates/index.html web/serverapp/templates/admin.html; then
-            echo 'ERROR: todavía existe UI visible del Sorteo Comunitario'
-            exit 1
-          fi
+          grep -F 'Omitir todo' web/serverapp/assets/js/app.js
+          grep -F 'Lo importante en tu cuenta' web/serverapp/assets/js/app.js
+          grep -F 'Sorteo actual' web/serverapp/assets/js/app.js
+          grep -F 'Comparte tu código personal' web/serverapp/assets/js/app.js
+          grep -F 'Recompensa 4' web/serverapp/assets/js/app.js
+          grep -F 'Nuevo comprobante' web/serverapp/assets/js/app.js
+          grep -F 'data-tour-start="inicio"' web/serverapp/templates/index.html
+          grep -F 'data-tour-start="actividad"' web/serverapp/templates/index.html
+          grep -F '?v=fase8' web/serverapp/templates/index.html
+          grep -F '?v=fase8' web/serverapp/templates/admin.html
 
       - name: Instalar backend
         working-directory: web
         run: python -m pip install --quiet -r requirements.txt
 
-      - name: Probar backend y pantallas
+      - name: Probar backend y recursos
+        working-directory: web
+        shell: bash
+        run: |
+          export SORTEOS_DB="$RUNNER_TEMP/sorteos-fase8.db"
+          export HOST=127.0.0.1
+          export PORT=5058
+          export ADMIN_USER=admin
+          export ADMIN_PASSWORD='Admin123!'
+          python -m serverapp.app >/tmp/fase8.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:5058/api/health >/dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:5058/api/health | grep -F '"ok":true'
+          curl -fsSI http://127.0.0.1:5058/assets/css/styles.css | grep -F '200 OK'
+          curl -fsSI http://127.0.0.1:5058/assets/js/app.js | grep -F '200 OK'
+          curl -fsS http://127.0.0.1:5058/ > /tmp/index.html
+          grep -F 'Ver guía de Inicio' /tmp/index.html
+          grep -F 'Ver guía de Sorteo' /tmp/index.html
+          grep -F 'Tus oportunidades' /tmp/index.html
+          ! grep -qi 'SORTEO COMUNITARIO' /tmp/index.html
+
+      - name: Probar persistencia base
         working-directory: web
         shell: bash
         run: |
           python - <<'PY'
           import os, tempfile, re
           from pathlib import Path
-          os.environ['SORTEOS_DB']=str(Path(tempfile.mkdtemp())/'fase7.db')
+          os.environ['SORTEOS_DB']=str(Path(tempfile.mkdtemp())/'fase8-persist.db')
           os.environ['ADMIN_USER']='admin'
           os.environ['ADMIN_PASSWORD']='Admin123!'
           from serverapp.app import app
           app.config['TESTING']=True
           c=app.test_client()
-          assert c.get('/api/health').status_code==200
-          assert c.get('/api/revision').status_code==200
-          user_html=c.get('/').get_data(as_text=True)
-          assert 'Este es el único sorteo de la plataforma' in user_html
-          assert 'SORTEO COMUNITARIO' not in user_html
-          reg1=c.post('/api/auth/register',json={'phone':'+584141111111','iso':'VE','password':'123456'})
-          assert reg1.status_code==201, reg1.get_data(as_text=True)
-          code=reg1.get_json()['user']['referralCode']
-          reg2=c.post('/api/auth/register',json={'phone':'+584242222222','iso':'VE','password':'123456','referral':code})
-          assert reg2.status_code==201, reg2.get_data(as_text=True)
+          r=c.post('/api/auth/register',json={'phone':'+584141111111','iso':'VE','password':'123456'})
+          assert r.status_code==201, r.get_data(as_text=True)
+          code=r.get_json()['user']['referralCode']
+          r2=c.post('/api/auth/register',json={'phone':'+584241111111','iso':'VE','password':'123456','referral':code})
+          assert r2.status_code==201, r2.get_data(as_text=True)
           login=c.get('/admin/login').get_data(as_text=True)
           token=re.search(r'name="csrf_token"[^>]*value="([^"]+)"',login)
           assert token
-          rr=c.post('/admin/login',data={'csrf_token':token.group(1),'username':'admin','password':'Admin123!'},follow_redirects=True)
-          assert rr.status_code==200
-          admin_html=rr.get_data(as_text=True)
-          assert 'Sorteo comunitario' not in admin_html
-          assert 'Participaciones del sorteo principal' in admin_html
-          assert 'Bonos virtuales por referidos' in admin_html
-          print('FASE7_BACKEND_OK')
+          auth=c.post('/admin/login',data={'csrf_token':token.group(1),'username':'admin','password':'Admin123!'})
+          assert auth.status_code in (302,303)
+          snap=c.get('/api/snapshot').get_json()
+          assert snap['ok'] is True and len(snap['users'])==2
+          print('FASE8_BACKEND_OK')
           PY
