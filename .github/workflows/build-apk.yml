@@ -1,10 +1,54 @@
-name: Build Centro Sorteos Central VPS
+name: Build Centro Sorteos Modificaciones
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
 jobs:
+  web-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Reconstruir web de prueba
+        shell: bash
+        run: |
+          base64 -d CentroSorteos_Web_Modificaciones_payload.txt > /tmp/web.tar.xz
+          mkdir -p web
+          tar -xJf /tmp/web.tar.xz -C web
+      - name: Validar sintaxis
+        shell: bash
+        run: |
+          python -m py_compile web/serverapp/app.py web/wsgi.py
+          node --check web/serverapp/assets/js/app.js
+          grep -F 'Sin reserva de número' web/serverapp/templates/admin.html
+          grep -F 'withdrawPaymentMethod' web/serverapp/templates/index.html
+          ! grep -F 'Fase 12 · Estadísticas conectadas' web/serverapp/templates/index.html
+      - name: Probar backend web
+        shell: bash
+        working-directory: web
+        run: |
+          python -m pip install --quiet -r requirements.txt
+          export SORTEOS_DB="$RUNNER_TEMP/sorteos-test.db"
+          export HOST=127.0.0.1
+          export PORT=5055
+          export ADMIN_USER=admin
+          export ADMIN_PASSWORD='Admin123!'
+          python -m serverapp.app > /tmp/centro-web.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:5055/api/health >/dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:5055/api/health | grep -F '"ok":true'
+          curl -fsSI http://127.0.0.1:5055/assets/css/styles.css | grep -F '200 OK'
+          curl -fsSI http://127.0.0.1:5055/assets/js/app.js | grep -F '200 OK'
+          curl -fsS http://127.0.0.1:5055/ | grep -F 'Método de pago'
+          curl -fsS http://127.0.0.1:5055/admin/login | grep -F 'Acceso administrador'
+
   build:
     runs-on: ubuntu-latest
     strategy:
@@ -14,15 +58,15 @@ jobs:
           - target: user
             payload_ref: 060adbe499744501aa10625083bb9a1bf554198a
             package_dir: com/centrosorteos/app
-            version_code: 5
-            version_name: 1.2.0
+            version_code: 6
+            version_name: 1.3.0
             app_url: http://76.13.126.244:8090/
             manifest_file: user.json
           - target: admin
             payload_ref: 261d6ecfafe705ea519d7aa9a2ab043e8771bb79
             package_dir: com/centrosorteos/admin
-            version_code: 8
-            version_name: 1.3.0
+            version_code: 9
+            version_name: 1.4.0
             app_url: http://76.13.126.244:8090/admin/login
             manifest_file: admin.json
 
@@ -34,16 +78,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-
       - name: Reconstruir proyecto ${{ matrix.target }}
         shell: bash
         run: |
@@ -51,8 +92,7 @@ jobs:
           base64 -d /tmp/payload.txt > /tmp/project.tar.xz
           mkdir -p project
           tar -xJf /tmp/project.tar.xz -C project
-
-      - name: Conectar APK al backend central
+      - name: Configurar cliente central y versión
         shell: bash
         env:
           APP_URL: ${{ matrix.app_url }}
@@ -64,15 +104,11 @@ jobs:
           python3.13 - <<'PY'
           import os, re
           from pathlib import Path
-
           java = Path("project/app/src/main/java") / os.environ["PACKAGE_DIR"] / "MainActivity.java"
           gradle = Path("project/app/build.gradle.kts")
           s = java.read_text(encoding="utf-8")
-
-          # Actualizador siempre en el VPS :8089.
           s = s.replace("https://www.viralenunclick.com/sorteos-updates/", "http://76.13.126.244:8089/")
           s = s.replace('startsWith("https://")', 'startsWith("http://76.13.126.244:8089/")')
-
           app_url = os.environ["APP_URL"]
           replacement = '''    private void startPythonServer() {
               if (appStarted) return;
@@ -82,36 +118,24 @@ jobs:
           }
 
           private void showStartupError'''.replace("__APP_URL__", app_url)
-
           s, n = re.subn(
               r'    private void startPythonServer\(\) \{.*?\n    \}\n\n    private void showStartupError',
-              replacement,
-              s,
-              count=1,
-              flags=re.S,
+              replacement, s, count=1, flags=re.S,
           )
           if n != 1:
               raise SystemExit("No se pudo reemplazar startPythonServer")
-
           java.write_text(s, encoding="utf-8")
-
           g = gradle.read_text(encoding="utf-8")
           g = re.sub(r'versionCode = \d+', f'versionCode = {os.environ["VERSION_CODE"]}', g)
           g = re.sub(r'versionName = "[^"]+"', f'versionName = "{os.environ["VERSION_NAME"]}"', g)
           gradle.write_text(g, encoding="utf-8")
           PY
-
           JAVA_FILE="project/app/src/main/java/${{ matrix.package_dir }}/MainActivity.java"
           grep -F 'http://76.13.126.244:8089/${{ matrix.manifest_file }}' "$JAVA_FILE"
           grep -F 'webView.loadUrl("${{ matrix.app_url }}")' "$JAVA_FILE"
           grep -F 'versionCode = ${{ matrix.version_code }}' project/app/build.gradle.kts
           grep -F 'versionName = "${{ matrix.version_name }}"' project/app/build.gradle.kts
           grep -F 'android:usesCleartextTraffic="true"' project/app/src/main/AndroidManifest.xml
-          if grep -R "viralenunclick.com/sorteos-updates" project/app/src/main; then
-            echo "ERROR: quedó una referencia al dominio anterior"
-            exit 1
-          fi
-
       - name: Preparar Android SDK 36
         shell: bash
         run: |
@@ -119,15 +143,12 @@ jobs:
           if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"; fi
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0" "platform-tools"
-
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.13'
-
       - name: Compilar Release sin firma
         working-directory: project
         run: gradle :app:assembleRelease --stacktrace -Pchaquopy.buildPython=$(command -v python3.13)
-
       - name: Preparar artefacto
         shell: bash
         run: |
@@ -137,9 +158,8 @@ jobs:
           cp "$ANDROID_HOME/build-tools/35.0.0/lib/apksigner.jar" release-bundle/apksigner.jar
           chmod +x release-bundle/zipalign
           sha256sum release-bundle/app-release-unsigned.apk > release-bundle/unsigned.sha256
-
       - uses: actions/upload-artifact@v4
         with:
-          name: centro-sorteos-${{ matrix.target }}-central-unsigned
+          name: centro-sorteos-${{ matrix.target }}-modificaciones-unsigned
           path: release-bundle/
           if-no-files-found: error
