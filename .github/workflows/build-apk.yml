@@ -1,4 +1,4 @@
-name: Validar Centro Sorteos Web Fase 4
+name: Validar Centro Sorteos Web Fase 5
 on:
   push:
     branches: [ main ]
@@ -13,12 +13,12 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Reconstruir Fase 4
+      - name: Reconstruir Fase 5
         shell: bash
         run: |
-          base64 -d CentroSorteos_WEB_Fase4_payload.txt > /tmp/fase4.tar.xz
+          base64 -d CentroSorteos_WEB_Fase5_payload.txt > /tmp/fase5.tar.xz
           mkdir -p web
-          tar -xJf /tmp/fase4.tar.xz -C web
+          tar -xJf /tmp/fase5.tar.xz -C web
 
       - name: Validar sintaxis y continuidad
         shell: bash
@@ -26,19 +26,17 @@ jobs:
           python -m py_compile web/serverapp/app.py web/serverapp/mobile_server.py
           node --check web/serverapp/assets/js/app.js
           node --check web/serverapp/assets/js/admin-shell.js
-          grep -F 'Guardar borrador' web/serverapp/templates/admin.html
-          grep -F 'Participantes y oportunidades' web/serverapp/templates/admin.html
-          grep -F 'Sorteos comunitarios finalizados' web/serverapp/templates/admin.html
-          grep -F 'function activateCommunityRaffle' web/serverapp/assets/js/app.js
-          grep -F 'function closeCommunityRaffle' web/serverapp/assets/js/app.js
-          grep -F 'function hydrateAdminCommunityParticipants' web/serverapp/assets/js/app.js
-          grep -F 'function hydrateAdminCommunityHistory' web/serverapp/assets/js/app.js
-          grep -F 'sourcePhone' web/serverapp/assets/js/app.js
-          grep -F 'adminRewardConfigDirty' web/serverapp/assets/js/app.js
-          grep -F 'adminVirtualBonusList' web/serverapp/assets/js/app.js
-          grep -F 'admin-user-whatsapp' web/serverapp/assets/css/styles.css
-          grep -F '?v=fase4' web/serverapp/templates/admin.html
-          grep -F '?v=fase4' web/serverapp/templates/index.html
+          grep -F "LOCAL_GENERATED_FLYER_PREFIX" web/serverapp/assets/js/app.js
+          grep -F "loadPersistedGeneratedFlyer" web/serverapp/assets/js/app.js
+          grep -F "persistGeneratedFlyer" web/serverapp/assets/js/app.js
+          grep -F "♻️ Regenerar flyer" web/serverapp/assets/js/app.js
+          grep -F "generatedFlyerMeta" web/serverapp/templates/index.html
+          grep -F "?v=fase5" web/serverapp/templates/index.html
+          grep -F "?v=fase5" web/serverapp/templates/admin.html
+          grep -F "adminRewardConfigDirty" web/serverapp/assets/js/app.js
+          grep -F "adminVirtualBonusList" web/serverapp/assets/js/app.js
+          grep -F "hydrateAdminCommunityParticipants" web/serverapp/assets/js/app.js
+          grep -F "admin-user-whatsapp" web/serverapp/assets/css/styles.css
 
       - name: Instalar backend
         working-directory: web
@@ -48,10 +46,10 @@ jobs:
         working-directory: web
         shell: bash
         run: |
-          export SORTEOS_DB="$RUNNER_TEMP/sorteos-fase4.db"
+          export SORTEOS_DB="$RUNNER_TEMP/sorteos-fase5.db"
           export HOST=127.0.0.1
           export PORT=5055
-          python -m serverapp.app >/tmp/fase4.log 2>&1 &
+          python -m serverapp.app >/tmp/fase5.log 2>&1 &
           PID=$!
           trap 'kill $PID || true' EXIT
           for i in {1..40}; do
@@ -61,4 +59,4 @@ jobs:
           curl -fsS http://127.0.0.1:5055/api/health | grep -F '"ok":true'
           curl -fsSI http://127.0.0.1:5055/assets/css/styles.css | grep -F '200 OK'
           curl -fsSI http://127.0.0.1:5055/assets/js/app.js | grep -F '200 OK'
-          curl -fsS http://127.0.0.1:5055/ | grep -F 'SORTEO COMUNITARIO'
+          curl -fsS http://127.0.0.1:5055/ | grep -F 'generatedFlyerMeta'
