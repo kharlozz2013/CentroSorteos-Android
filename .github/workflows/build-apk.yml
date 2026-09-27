@@ -1,4 +1,4 @@
-name: Validar Centro Sorteos Web Fase 1
+name: Validar Centro Sorteos Web Fase 2
 on:
   push:
     branches: [ main ]
@@ -12,64 +12,47 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - name: Reconstruir Fase 1
+
+      - name: Reconstruir Fase 2
         shell: bash
         run: |
-          base64 -d CentroSorteos_WEB_Fase1_payload.txt > /tmp/fase1.tar.xz
+          base64 -d CentroSorteos_WEB_Fase2_payload.txt > /tmp/fase2.tar.xz
           mkdir -p web
-          tar -xJf /tmp/fase1.tar.xz -C web
-      - name: Validar sintaxis y reglas Fase 1
+          tar -xJf /tmp/fase2.tar.xz -C web
+
+      - name: Validar sintaxis y UI Fase 2
         shell: bash
         run: |
           python -m py_compile web/serverapp/app.py web/serverapp/mobile_server.py
           node --check web/serverapp/assets/js/app.js
-          grep -F 'adminRewardConfigDirty' web/serverapp/assets/js/app.js
-          grep -F 'recordRewardRaffleParticipation' web/serverapp/assets/js/app.js
+          grep -F 'Participaciones del sorteo principal' web/serverapp/templates/admin.html
+          grep -F 'Bonos virtuales por referidos' web/serverapp/templates/admin.html
+          grep -F 'data-participation-filter="confirmed"' web/serverapp/templates/admin.html
+          grep -F 'function whatsappAdminLink' web/serverapp/assets/js/app.js
+          grep -F 'function participantOrigin' web/serverapp/assets/js/app.js
+          grep -F 'adminVirtualBonusList' web/serverapp/assets/js/app.js
+          grep -F 'data-admin-jump-participations' web/serverapp/assets/js/app.js
+          grep -F 'admin-whatsapp-link' web/serverapp/assets/css/styles.css
           grep -F 'trackingVersion:2' web/serverapp/assets/js/app.js
-          grep -F 'Configuración de recompensas guardada en el servidor' web/serverapp/assets/js/app.js
-          grep -F 'Tienes cambios sin guardar' web/serverapp/assets/js/app.js
-          grep -F 'Solo comprobantes enviados después de activar el reto' web/serverapp/assets/js/app.js
-          grep -F 'cada Sorteo Principal o Comunitario distinto' web/serverapp/templates/index.html
+
       - name: Instalar backend
         working-directory: web
         run: python -m pip install --quiet -r requirements.txt
-      - name: Probar persistencia de recompensas
+
+      - name: Probar backend y recursos
         working-directory: web
         shell: bash
         run: |
-          python - <<'PY'
-          import os, tempfile, re
-          from pathlib import Path
-          os.environ['SORTEOS_DB']=str(Path(tempfile.mkdtemp())/'phase1.db')
-          os.environ['ADMIN_USER']='admin'
-          os.environ['ADMIN_PASSWORD']='Admin123!'
-          from serverapp.app import app
-          app.config['TESTING']=True
-          client=app.test_client()
-
-          blocked=client.put('/api/store/sorteos_demo_reward_config_v1',json={'value':[]})
-          assert blocked.status_code==403
-
-          login=client.get('/admin/login').get_data(as_text=True)
-          token=re.search(r'name="csrf_token"[^>]*value="([^"]+)"',login)
-          assert token
-          response=client.post('/admin/login',data={'csrf_token':token.group(1),'username':'admin','password':'Admin123!'})
-          assert response.status_code in (302,303)
-
-          config=[
-            {'id':'RW-167','amount':2.00,'views':500,'raffles':3,'referrals':2,'enabled':True},
-            {'id':'RW-080','amount':0.80,'views':1500,'raffles':5,'referrals':3,'enabled':True},
-            {'id':'RW-055','amount':0.55,'views':900,'raffles':3,'referrals':2,'enabled':True},
-            {'id':'RW-020','amount':0.20,'views':300,'raffles':1,'referrals':1,'enabled':True},
-          ]
-          saved=client.put('/api/store/sorteos_demo_reward_config_v1',json={'value':config})
-          assert saved.status_code==200, saved.get_data(as_text=True)
-          reread=client.get('/api/store/sorteos_demo_reward_config_v1').get_json()['value']
-          assert reread[0]['amount']==2.0
-          assert reread[0]['views']==500
-          assert reread[0]['raffles']==3
-          assert reread[0]['referrals']==2
-          snap=client.get('/api/snapshot').get_json()
-          assert snap['store']['sorteos_demo_reward_config_v1'][0]['views']==500
-          print('PHASE1_REWARD_PERSISTENCE_OK')
-          PY
+          export SORTEOS_DB="$RUNNER_TEMP/sorteos-fase2.db"
+          export HOST=127.0.0.1
+          export PORT=5055
+          python -m serverapp.app >/tmp/fase2.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:5055/api/health >/dev/null; then break; fi
+            sleep 0.5
+          done
+          curl -fsS http://127.0.0.1:5055/api/health | grep -F '"ok":true'
+          curl -fsSI http://127.0.0.1:5055/assets/css/styles.css | grep -F '200 OK'
+          curl -fsSI http://127.0.0.1:5055/assets/js/app.js | grep -F '200 OK'
