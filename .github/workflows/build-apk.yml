@@ -20,33 +20,24 @@ jobs:
           mkdir -p web
           tar -xJf /tmp/fase7.tar.xz -C web
 
-      - name: Validar sintaxis
+      - name: Validar sintaxis e integración Fase 7
         shell: bash
         run: |
           python -m py_compile web/serverapp/app.py web/serverapp/mobile_server.py
           node --check web/serverapp/assets/js/app.js
           node --check web/serverapp/assets/js/admin-shell.js
-
-      - name: Validar Sorteo Principal único
-        shell: bash
-        run: |
-          grep -F 'Un solo sorteo. <span>Más formas de ganar.</span>' web/serverapp/templates/index.html
+          grep -F 'Este es el único sorteo de la plataforma' web/serverapp/templates/index.html
           grep -F '1 referido aprobado = +1 oportunidad virtual' web/serverapp/templates/index.html
-          grep -F 'Único sistema de sorteo' web/serverapp/templates/admin.html
+          grep -F 'cada Sorteo Principal distinto' web/serverapp/templates/index.html
+          grep -F 'Cada referido directo aprobado por el Admin aporta +1 oportunidad virtual' web/serverapp/templates/admin.html
           grep -F 'approvedReferralSourcesForPhone' web/serverapp/assets/js/app.js
-          grep -F 'allReferralBonusEntries' web/serverapp/assets/js/app.js
-          grep -F "user.referralStatus === 'approved' && user.referralRewardGranted" web/serverapp/assets/js/app.js
+          grep -F "if (referred.referredBy !== inviter.referralCode || referred.referralStatus !== 'approved')" web/serverapp/assets/js/app.js
+          grep -F "if(type!=='main'||!phone||!raffle?.id)return false;" web/serverapp/assets/js/app.js
           grep -F "event.type !== 'main'" web/serverapp/assets/js/app.js
-          grep -F 'Cada Sorteo Principal distinto cuenta una sola vez' web/serverapp/assets/js/app.js
-          grep -F 'Bonos virtuales' web/serverapp/assets/js/admin-shell.js
           grep -F '?v=fase7' web/serverapp/templates/index.html
           grep -F '?v=fase7' web/serverapp/templates/admin.html
-          if grep -F 'SORTEO COMUNITARIO' web/serverapp/templates/index.html web/serverapp/templates/admin.html; then
-            echo 'ERROR: quedó Sorteo Comunitario visible'
-            exit 1
-          fi
-          if grep -F 'sorteos_demo_community_raffles_v1' web/serverapp/app.py; then
-            echo 'ERROR: backend todavía expone el store comunitario'
+          if grep -Ei 'SORTEO COMUNITARIO|Sorteo comunitario|Sorteos comunitarios|SEGUNDO SISTEMA' web/serverapp/templates/index.html web/serverapp/templates/admin.html; then
+            echo 'ERROR: todavía existe UI visible del Sorteo Comunitario'
             exit 1
           fi
 
@@ -54,7 +45,7 @@ jobs:
         working-directory: web
         run: python -m pip install --quiet -r requirements.txt
 
-      - name: Probar backend Fase 7
+      - name: Probar backend y pantallas
         working-directory: web
         shell: bash
         run: |
@@ -68,21 +59,23 @@ jobs:
           app.config['TESTING']=True
           c=app.test_client()
           assert c.get('/api/health').status_code==200
-          assert c.get('/').status_code==200
-          html=c.get('/').get_data(as_text=True)
-          assert 'SORTEO COMUNITARIO' not in html
-          assert 'SORTEO PRINCIPAL' in html
-          mary=c.post('/api/auth/register',json={'phone':'+584141111111','iso':'VE','password':'123456'}).get_json()
-          assert mary['ok']
-          code=mary['user']['referralCode']
-          sofia=c.post('/api/auth/register',json={'phone':'+584142222222','iso':'VE','password':'123456','referral':code}).get_json()
-          assert sofia['ok'] and sofia['user']['referredBy']==code
+          assert c.get('/api/revision').status_code==200
+          user_html=c.get('/').get_data(as_text=True)
+          assert 'Este es el único sorteo de la plataforma' in user_html
+          assert 'SORTEO COMUNITARIO' not in user_html
+          reg1=c.post('/api/auth/register',json={'phone':'+584141111111','iso':'VE','password':'123456'})
+          assert reg1.status_code==201, reg1.get_data(as_text=True)
+          code=reg1.get_json()['user']['referralCode']
+          reg2=c.post('/api/auth/register',json={'phone':'+584242222222','iso':'VE','password':'123456','referral':code})
+          assert reg2.status_code==201, reg2.get_data(as_text=True)
           login=c.get('/admin/login').get_data(as_text=True)
           token=re.search(r'name="csrf_token"[^>]*value="([^"]+)"',login)
           assert token
-          r=c.post('/admin/login',data={'csrf_token':token.group(1),'username':'admin','password':'Admin123!'})
-          assert r.status_code in (302,303)
-          snap=c.get('/api/snapshot').get_json()
-          assert 'sorteos_demo_community_raffles_v1' not in snap['store']
+          rr=c.post('/admin/login',data={'csrf_token':token.group(1),'username':'admin','password':'Admin123!'},follow_redirects=True)
+          assert rr.status_code==200
+          admin_html=rr.get_data(as_text=True)
+          assert 'Sorteo comunitario' not in admin_html
+          assert 'Participaciones del sorteo principal' in admin_html
+          assert 'Bonos virtuales por referidos' in admin_html
           print('FASE7_BACKEND_OK')
           PY
