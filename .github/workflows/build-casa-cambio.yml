@@ -51,9 +51,13 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
 
+      - name: Generate Gradle Wrapper
+        working-directory: CasaCambioAndroid
+        run: gradle --no-daemon wrapper --gradle-version 8.11.1
+
       - name: Build debug APK
         working-directory: CasaCambioAndroid
-        run: gradle --no-daemon :app:assembleDebug
+        run: ./gradlew --no-daemon :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -62,3 +66,20 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           path: CasaCambioAndroid/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload Android project
+        uses: actions/upload-artifact@v4
+        with:
+          name: CasaCambio-Android-Project
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            CasaCambioAndroid/settings.gradle
+            CasaCambioAndroid/build.gradle
+            CasaCambioAndroid/gradle.properties
+            CasaCambioAndroid/gradlew
+            CasaCambioAndroid/gradlew.bat
+            CasaCambioAndroid/gradle/wrapper/**
+            CasaCambioAndroid/app/build.gradle
+            CasaCambioAndroid/app/proguard-rules.pro
+            CasaCambioAndroid/app/src/**
