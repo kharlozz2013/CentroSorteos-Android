@@ -12,12 +12,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.provider.Settings;
-import android.view.ViewGroup;
+import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
-import android.webkit.SslErrorHandler;
-import android.net.http.SslError;
 import android.webkit.URLUtil;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -32,13 +29,14 @@ import java.util.Locale;
 
 public class MainActivity extends Activity {
 
-    private static final String BASE_URL = "https://cambio.viralenunclick.com";
+    private static final String BASE_URL = "http://76.13.126.244:8092";
+    private static final String APP_HOST = "76.13.126.244";
+    private static final int APP_PORT = 8092;
     private static final int FILE_CHOOSER_REQUEST = 501;
     private static final int STORAGE_PERMISSION_REQUEST = 502;
 
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
-
     private String pendingDownloadUrl;
     private String pendingDownloadUserAgent;
     private String pendingDownloadDisposition;
@@ -47,22 +45,21 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(Color.rgb(247, 245, 255));
+        getWindow().setNavigationBarColor(Color.WHITE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    getWindow().getDecorView().getSystemUiVisibility() | View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+            );
+        }
 
         webView = new WebView(this);
-        webView.setLayoutParams(new ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-        ));
-        webView.setBackgroundColor(Color.rgb(248, 247, 252));
+        webView.setBackgroundColor(Color.rgb(247, 247, 251));
         setContentView(webView);
-
         configureWebView();
 
-        if (savedInstanceState == null) {
-            webView.loadUrl(BASE_URL);
-        } else {
-            webView.restoreState(savedInstanceState);
-        }
+        if (savedInstanceState == null) webView.loadUrl(BASE_URL);
+        else webView.restoreState(savedInstanceState);
     }
 
     private void configureWebView() {
@@ -77,13 +74,13 @@ public class MainActivity extends Activity {
         settings.setSupportZoom(false);
         settings.setLoadWithOverviewMode(false);
         settings.setUseWideViewPort(true);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setTextZoom(100);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setUserAgentString(settings.getUserAgentString() + " CasaCambioAndroid/1.0");
 
-        CookieManager.getInstance().setAcceptCookie(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
-        }
+        CookieManager cookies = CookieManager.getInstance();
+        cookies.setAcceptCookie(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) cookies.setAcceptThirdPartyCookies(webView, true);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -97,35 +94,16 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.cancel();
-                Toast.makeText(MainActivity.this,
-                        "No se pudo validar la conexión segura.", Toast.LENGTH_LONG).show();
-            }
-
-            @Override
-            public void onReceivedError(
-                    WebView view,
-                    WebResourceRequest request,
-                    WebResourceError error
-            ) {
-                if (request.isForMainFrame()) {
-                    showConnectionError();
-                }
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) showConnectionError();
             }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
-            public boolean onShowFileChooser(
-                    WebView webView,
-                    ValueCallback<Uri[]> filePathCallbackParam,
-                    FileChooserParams fileChooserParams
-            ) {
-                if (filePathCallback != null) {
-                    filePathCallback.onReceiveValue(null);
-                }
-                filePathCallback = filePathCallbackParam;
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> callback, FileChooserParams params) {
+                if (filePathCallback != null) filePathCallback.onReceiveValue(null);
+                filePathCallback = callback;
 
                 Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -133,16 +111,13 @@ public class MainActivity extends Activity {
                 intent.putExtra(Intent.EXTRA_MIME_TYPES,
                         new String[]{"image/jpeg", "image/png", "image/webp", "application/pdf"});
                 intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
-                        fileChooserParams != null &&
-                                fileChooserParams.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
-
+                        params != null && params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
                 try {
                     startActivityForResult(intent, FILE_CHOOSER_REQUEST);
                     return true;
-                } catch (ActivityNotFoundException ex) {
+                } catch (ActivityNotFoundException e) {
                     filePathCallback = null;
-                    Toast.makeText(MainActivity.this,
-                            "No se encontró un selector de archivos.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, "No se encontró un selector de archivos.", Toast.LENGTH_LONG).show();
                     return false;
                 }
             }
@@ -150,27 +125,18 @@ public class MainActivity extends Activity {
 
         webView.setDownloadListener(new DownloadListener() {
             @Override
-            public void onDownloadStart(
-                    String url,
-                    String userAgent,
-                    String contentDisposition,
-                    String mimetype,
-                    long contentLength
-            ) {
+            public void onDownloadStart(String url, String userAgent, String contentDisposition,
+                                        String mimeType, long contentLength) {
                 if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
-                        checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                                != PackageManager.PERMISSION_GRANTED) {
+                        checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                     pendingDownloadUrl = url;
                     pendingDownloadUserAgent = userAgent;
                     pendingDownloadDisposition = contentDisposition;
-                    pendingDownloadMimeType = mimetype;
-                    requestPermissions(
-                            new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
-                            STORAGE_PERMISSION_REQUEST
-                    );
+                    pendingDownloadMimeType = mimeType;
+                    requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST);
                     return;
                 }
-                enqueueDownload(url, userAgent, contentDisposition, mimetype);
+                enqueueDownload(url, userAgent, contentDisposition, mimeType);
             }
         });
     }
@@ -178,20 +144,18 @@ public class MainActivity extends Activity {
     private boolean handleNavigation(Uri uri) {
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+        int port = uri.getPort();
 
         if ("http".equals(scheme) || "https".equals(scheme)) {
-            if ("cambio.viralenunclick.com".equals(host)) {
-                return false;
-            }
+            if (APP_HOST.equals(host) && (port == APP_PORT || port == -1)) return false;
             openExternal(uri);
             return true;
         }
 
         if ("intent".equals(scheme)) {
             try {
-                Intent intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME);
-                startActivity(intent);
-            } catch (Exception ignored) {
+                startActivity(Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME));
+            } catch (Exception e) {
                 Toast.makeText(this, "No se pudo abrir el enlace.", Toast.LENGTH_SHORT).show();
             }
             return true;
@@ -204,129 +168,78 @@ public class MainActivity extends Activity {
     private void openExternal(Uri uri) {
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, uri));
-        } catch (ActivityNotFoundException ex) {
-            Toast.makeText(this, "No hay una aplicación disponible para abrir este enlace.",
-                    Toast.LENGTH_SHORT).show();
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "No hay una aplicación disponible para abrir este enlace.", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private void enqueueDownload(
-            String url,
-            String userAgent,
-            String contentDisposition,
-            String mimetype
-    ) {
+    private void enqueueDownload(String url, String userAgent, String contentDisposition, String mimeType) {
         try {
-            String fileName = URLUtil.guessFileName(url, contentDisposition, mimetype);
+            String fileName = URLUtil.guessFileName(url, contentDisposition, mimeType);
             DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
             request.setTitle(fileName);
             request.setDescription("Descargando comprobante");
-            request.setMimeType(mimetype);
-            request.addRequestHeader("User-Agent", userAgent);
-
-            String cookies = CookieManager.getInstance().getCookie(url);
-            if (cookies != null && !cookies.isEmpty()) {
-                request.addRequestHeader("Cookie", cookies);
-            }
-
-            request.setNotificationVisibility(
-                    DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setMimeType(mimeType);
+            request.addRequestHeader("User-Agent", userAgent == null ? "" : userAgent);
+            String cookie = CookieManager.getInstance().getCookie(url);
+            if (cookie != null && !cookie.isEmpty()) request.addRequestHeader("Cookie", cookie);
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName);
-
-            DownloadManager manager =
-                    (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-            manager.enqueue(request);
+            ((DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(request);
             Toast.makeText(this, "Descarga iniciada.", Toast.LENGTH_SHORT).show();
-        } catch (Exception ex) {
+        } catch (Exception e) {
             Toast.makeText(this, "No se pudo iniciar la descarga.", Toast.LENGTH_LONG).show();
         }
     }
 
     private void showConnectionError() {
-        String html =
-                "<!doctype html><html><head><meta name='viewport' " +
-                "content='width=device-width,initial-scale=1'><style>" +
-                "body{font-family:sans-serif;background:#f8f7fc;color:#16162a;" +
-                "display:flex;align-items:center;justify-content:center;height:100vh;" +
-                "margin:0;padding:24px;box-sizing:border-box}" +
-                ".c{max-width:420px;text-align:center;background:white;padding:28px;" +
-                "border-radius:24px;box-shadow:0 12px 35px rgba(40,30,90,.08)}" +
-                "button{border:0;border-radius:14px;background:#7567e8;color:white;" +
-                "font-weight:700;padding:14px 22px;font-size:16px}</style></head>" +
-                "<body><div class='c'><h2>Sin conexión</h2>" +
-                "<p>No pudimos conectar con Casa de Cambio.</p>" +
-                "<button onclick=\"location.href='" + BASE_URL + "'\">Reintentar</button>" +
-                "</div></body></html>";
-
+        String html = "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>" +
+                "<style>body{font-family:sans-serif;background:#f7f7fb;color:#242536;display:flex;align-items:center;justify-content:center;" +
+                "height:100vh;margin:0;padding:22px;box-sizing:border-box}.c{max-width:360px;text-align:center;background:#fff;padding:26px;" +
+                "border-radius:24px;box-shadow:0 12px 35px rgba(40,30,90,.08)}button{border:0;border-radius:14px;background:#7567e8;" +
+                "color:#fff;font-weight:700;padding:14px 22px;font-size:16px}</style></head><body><div class='c'>" +
+                "<h2>Sin conexión</h2><p>No pudimos conectar con Casa de Cambio.</p>" +
+                "<button onclick="location.href='" + BASE_URL + "'">Reintentar</button></div></body></html>";
         webView.loadDataWithBaseURL(BASE_URL, html, "text/html", "UTF-8", null);
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode != FILE_CHOOSER_REQUEST || filePathCallback == null) {
-            return;
-        }
-
+        if (requestCode != FILE_CHOOSER_REQUEST || filePathCallback == null) return;
         Uri[] results = null;
         if (resultCode == RESULT_OK && data != null) {
             if (data.getClipData() != null) {
                 int count = data.getClipData().getItemCount();
                 results = new Uri[count];
-                for (int i = 0; i < count; i++) {
-                    results[i] = data.getClipData().getItemAt(i).getUri();
-                }
+                for (int i = 0; i < count; i++) results[i] = data.getClipData().getItemAt(i).getUri();
             } else if (data.getData() != null) {
                 results = new Uri[]{data.getData()};
             }
         }
-
         filePathCallback.onReceiveValue(results);
         filePathCallback = null;
     }
 
     @Override
-    public void onRequestPermissionsResult(
-            int requestCode,
-            String[] permissions,
-            int[] grantResults
-    ) {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-
-        if (requestCode == STORAGE_PERMISSION_REQUEST &&
-                grantResults.length > 0 &&
-                grantResults[0] == PackageManager.PERMISSION_GRANTED &&
-                pendingDownloadUrl != null) {
-
-            enqueueDownload(
-                    pendingDownloadUrl,
-                    pendingDownloadUserAgent,
-                    pendingDownloadDisposition,
-                    pendingDownloadMimeType
-            );
+        if (requestCode == STORAGE_PERMISSION_REQUEST && grantResults.length > 0 &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED && pendingDownloadUrl != null) {
+            enqueueDownload(pendingDownloadUrl, pendingDownloadUserAgent, pendingDownloadDisposition, pendingDownloadMimeType);
         }
-
-        pendingDownloadUrl = null;
-        pendingDownloadUserAgent = null;
-        pendingDownloadDisposition = null;
-        pendingDownloadMimeType = null;
+        pendingDownloadUrl = pendingDownloadUserAgent = pendingDownloadDisposition = pendingDownloadMimeType = null;
     }
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else super.onBackPressed();
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
-        if (webView != null) {
-            webView.saveState(outState);
-        }
+        if (webView != null) webView.saveState(outState);
         super.onSaveInstanceState(outState);
     }
 
