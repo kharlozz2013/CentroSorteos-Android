@@ -7,6 +7,12 @@ on:
     paths:
       - 'CasaCambioAndroid/**'
       - '.github/workflows/build-casa-cambio.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'CasaCambioAndroid/**'
+      - '.github/workflows/build-casa-cambio.yml'
 
 permissions:
   contents: read
