@@ -199,7 +199,7 @@ public class MainActivity extends Activity {
                 "border-radius:24px;box-shadow:0 12px 35px rgba(40,30,90,.08)}button{border:0;border-radius:14px;background:#7567e8;" +
                 "color:#fff;font-weight:700;padding:14px 22px;font-size:16px}</style></head><body><div class='c'>" +
                 "<h2>Sin conexión</h2><p>No pudimos conectar con Casa de Cambio.</p>" +
-                "<button onclick="location.href='" + BASE_URL + "'">Reintentar</button></div></body></html>";
+                "<button onclick='window.location.reload()'>Reintentar</button></div></body></html>";
         webView.loadDataWithBaseURL(BASE_URL, html, "text/html", "UTF-8", null);
     }
 
