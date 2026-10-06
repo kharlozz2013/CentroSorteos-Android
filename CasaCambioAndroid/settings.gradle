@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "CasaCambio"
+rootProject.name = "CambiosFintech"
 include(":app")
