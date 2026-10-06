@@ -3,11 +3,11 @@ plugins {
 }
 
 android {
-    namespace 'com.viralenunclick.cambio'
+    namespace 'com.viralenunclick.cambiosfintech'
     compileSdk 36
 
     defaultConfig {
-        applicationId "com.viralenunclick.cambio"
+        applicationId "com.viralenunclick.cambiosfintech"
         minSdk 26
         targetSdk 36
         versionCode 1
