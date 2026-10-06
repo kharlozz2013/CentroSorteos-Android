@@ -13,6 +13,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.View;
+import android.view.WindowInsets;
 import android.webkit.CookieManager;
 import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
@@ -56,10 +57,26 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(247, 247, 251));
         setContentView(webView);
+        applySystemBarInsets();
         configureWebView();
 
         if (savedInstanceState == null) webView.loadUrl(BASE_URL);
         else webView.restoreState(savedInstanceState);
+    }
+
+    private void applySystemBarInsets() {
+        // targetSdk 36: evita que la cabecera choque con hora, señal y batería.
+        webView.setOnApplyWindowInsetsListener((view, insets) -> {
+            int topInset;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                topInset = insets.getInsets(WindowInsets.Type.statusBars()).top;
+            } else {
+                topInset = insets.getSystemWindowInsetTop();
+            }
+            view.setPadding(0, topInset, 0, 0);
+            return insets;
+        });
+        webView.requestApplyInsets();
     }
 
     private void configureWebView() {
@@ -76,7 +93,7 @@ public class MainActivity extends Activity {
         settings.setUseWideViewPort(true);
         settings.setTextZoom(100);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        settings.setUserAgentString(settings.getUserAgentString() + " CambiosFintechAndroid/1.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " CambiosFintechAndroid/1.1");
 
         CookieManager cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
