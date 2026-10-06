@@ -1,6 +1,6 @@
-# Casa de Cambio Android — IP directa
+# Cambios Fintech Android — IP directa
 
-- Package: `com.viralenunclick.cambio`
+- Package: `com.viralenunclick.cambiosfintech`
 - Backend: `http://76.13.126.244:8092`
 - compileSdk / targetSdk: 36
 - minSdk: 26
